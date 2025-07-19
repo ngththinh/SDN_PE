@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
-import Post from '../../../../models/Post';
+import Contact from '../../../../models/Contact';
 
 // Connect to MongoDB
 async function connectDB() {
@@ -14,13 +14,14 @@ async function connectDB() {
   }
 }
 
-// GET - Fetch all posts with search and sort
+// GET - Fetch all contacts with search, filter, and sort
 export async function GET(request) {
   try {
     await connectDB();
     
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
+    const group = searchParams.get('group') || '';
     const sort = searchParams.get('sort') || 'name';
     const order = searchParams.get('order') || 'asc';
     
@@ -31,9 +32,14 @@ export async function GET(request) {
       query = {
         $or: [
           { name: { $regex: search, $options: 'i' } },
-          { description: { $regex: search, $options: 'i' } }
+          { email: { $regex: search, $options: 'i' } }
         ]
       };
+    }
+    
+    // Filter by group
+    if (group && group !== '') {
+      query.group = group;
     }
     
     // Sort functionality
@@ -41,9 +47,9 @@ export async function GET(request) {
     const sortObj = {};
     sortObj[sort] = sortOrder;
     
-    const posts = await Post.find(query).sort(sortObj);
+    const contacts = await Contact.find(query).sort(sortObj);
     
-    return NextResponse.json({ success: true, data: posts });
+    return NextResponse.json({ success: true, data: contacts });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error.message },
@@ -52,32 +58,46 @@ export async function GET(request) {
   }
 }
 
-// POST - Create a new post
+// POST - Create a new contact
 export async function POST(request) {
   try {
     await connectDB();
     
     const body = await request.json();
-    const { name, description, image } = body;
+    const { name, email, phone, group } = body;
     
-    if (!name || !description) {
+    // Validation
+    if (!name || !email) {
       return NextResponse.json(
-        { success: false, error: 'Name and description are required' },
+        { success: false, error: 'Name and email are required' },
         { status: 400 }
       );
     }
     
-    const post = await Post.create({
+    // Check if email already exists
+    const existingContact = await Contact.findOne({ email: email.toLowerCase() });
+    if (existingContact) {
+      return NextResponse.json(
+        { success: false, error: 'A contact with this email already exists' },
+        { status: 400 }
+      );
+    }
+    
+    const contact = await Contact.create({
       name,
-      description,
-      image: image || null
+      email,
+      phone: phone || '',
+      group: group || ''
     });
     
-    return NextResponse.json(
-      { success: true, data: post },
-      { status: 201 }
-    );
+    return NextResponse.json({ success: true, data: contact }, { status: 201 });
   } catch (error) {
+    if (error.name === 'ValidationError') {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: 400 }
+      );
+    }
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }
